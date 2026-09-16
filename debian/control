@@ -1,7 +1,7 @@
 Source: qcom-ath-board-update
 Section: admin
 Priority: optional
-Maintainer: Package Maintainers <maintainers@example.invalid>
+Maintainer: Juerg Haefliger <juerg.haefliger@canonical.com>
 Build-Depends:
  debhelper-compat (= 13),
  dh-sequence-python3,
