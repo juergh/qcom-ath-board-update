@@ -1,0 +1,7 @@
+Test-Command: qcom-ath-board-update --help >/dev/null && test -x /usr/libexec/qcom-ath-board-update/ath11k-bdencoder && test -x /usr/libexec/qcom-ath-board-update/ath12k-bdencoder
+Depends: @
+Restrictions: superficial
+
+Test-Command: PYTHONPATH=src python3 -m unittest discover -v
+Depends: @, python3
+Restrictions: allow-stderr

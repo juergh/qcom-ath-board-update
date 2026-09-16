@@ -1,0 +1,31 @@
+Source: qcom-ath-board-update
+Section: admin
+Priority: optional
+Maintainer: Package Maintainers <maintainers@example.invalid>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-sequence-python3,
+ pybuild-plugin-pyproject,
+ python3-all,
+ python3-setuptools,
+Rules-Requires-Root: no
+Standards-Version: 4.7.3
+
+Package: qcom-ath-board-update
+Architecture: all
+Depends:
+ ${misc:Depends},
+ ${python3:Depends},
+ dislocker,
+ libhivex-bin,
+ mount,
+ ntfs-3g,
+ zstd,
+Recommends: initramfs-tools | dracut-core
+Description: install Qualcomm ath11k/ath12k board data from Windows
+ Extracts the board-data filename selected by a Windows Qualcomm Wi-Fi
+ driver, finds the corresponding BDF in the Windows DriverStore, and adds it
+ to the Linux ath11k or ath12k board-2.bin firmware container.
+ .
+ Windows and BitLocker volumes are accessed read-only. Generated firmware is
+ installed as a local overlay without replacing package-owned firmware.

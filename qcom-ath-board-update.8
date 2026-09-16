@@ -1,0 +1,84 @@
+.TH QCOM-ATH-BOARD-UPDATE 8 "September 2026" "qcom-ath-board-update 0.1.0" "System Administration"
+.SH NAME
+qcom-ath-board-update \- install Qualcomm ath11k/ath12k board data from Windows
+.SH SYNOPSIS
+.B qcom-ath-board-update
+.RI [ options ]
+.RI [ inspect | install | verify ]
+.SH DESCRIPTION
+.B qcom-ath-board-update
+detects a Qualcomm PCI Wi-Fi device, obtains its complete Linux board
+identifier from the kernel log, and reads the Windows
+.B BDFilename
+registry value from the active SYSTEM control set. It then uses Qualcomm's
+bdencoder utility to add the selected BDF to the appropriate
+.B board-2.bin
+container.
+.PP
+The default command is
+.BR inspect ,
+which makes no firmware changes. The
+.B install
+command writes an overlay below
+.B /usr/lib/firmware/updates
+and optionally rebuilds the initramfs. The
+.B verify
+command fails unless the selected BDF is already mapped to the target board
+identifier.
+.SH OPTIONS
+.TP
+.BI --device " PCI_ADDRESS"
+Select a PCI device when more than one candidate exists.
+.TP
+.BI --windows-root " PATH"
+Use an already mounted Windows system volume.
+.TP
+.BI --windows-device " DEVICE"
+Use a specific NTFS or BitLocker block device.
+.TP
+.BI --bdf-file " PATH"
+Use a board ELF directly instead of reading the Windows registry.
+.TP
+.BI --board-container " PATH"
+Override the source board-2.bin or board-2.bin.zst.
+.TP
+.BI --board-name " IDENTIFIER"
+Override the complete board identifier.
+.TP
+.BI --firmware-relative-path " PATH"
+Override the firmware path relative to /usr/lib/firmware.
+.TP
+.BI --output-root " PATH"
+Override the firmware overlay root. The default is
+.BR /usr/lib/firmware/updates .
+.TP
+.B --no-initramfs-update
+Do not run update-initramfs or dracut after installation.
+.TP
+.B --json
+Print the inspection report as JSON.
+.SH BITLOCKER
+BitLocker volumes are opened with dislocker in read-only mode. Dislocker
+prompts for a recovery password without exposing it in the process command
+line. TPM-only protectors generally require the volume to be unlocked in
+Windows first.
+.SH FILES
+.TP
+.B /usr/lib/firmware/updates/ath11k
+ath11k firmware overlays.
+.TP
+.B /usr/lib/firmware/updates/ath12k
+ath12k firmware overlays.
+.TP
+.B /var/lib/qcom-ath-board-update/manifest.json
+Manifest describing the most recent installation.
+.TP
+.B /var/lib/qcom-ath-board-update/backups
+Previous overlay files replaced by the tool.
+.SH EXIT STATUS
+Returns zero on success and non-zero on detection, validation, registry,
+encoder, installation, or verification errors.
+.SH SEE ALSO
+.BR dislocker-fuse (1),
+.BR update-initramfs (8),
+.BR dracut (8)

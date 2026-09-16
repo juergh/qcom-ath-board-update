@@ -1,0 +1,6 @@
+tar-ignore=tmp
+tar-ignore=.pybuild
+tar-ignore=build
+tar-ignore=dist
+tar-ignore=*.egg-info
+tar-ignore=__pycache__

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qcom-ath-board-update"
+version = "0.1.0"
+description = "Install Qualcomm ath11k/ath12k board data from Windows"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-2.0-or-later"
+authors = [{name = "Package Maintainers", email = "maintainers@example.invalid"}]
+
+[project.scripts]
+qcom-ath-board-update = "qcom_ath_board_update.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
