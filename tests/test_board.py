@@ -8,7 +8,6 @@ from pathlib import Path
 from qcom_ath_board_update.board import build_update, inspect_update
 from qcom_ath_board_update.system import UpdateError
 
-
 ROOT = Path(__file__).resolve().parents[1]
 ENCODERS = {
     "ath11k_pci": ROOT / "vendor/ath11k-bdencoder",
@@ -18,6 +17,7 @@ ENCODERS = {
 
 class BoardTests(unittest.TestCase):
     def make_container(self, directory: Path, driver: str, entries: list[tuple[list[str], bytes]]) -> Path:
+        """Create a synthetic board container with the selected encoder."""
         boards = []
         for index, (names, data) in enumerate(entries):
             filename = f"data-{index}.bin"
@@ -35,6 +35,7 @@ class BoardTests(unittest.TestCase):
         return output
 
     def test_noop_for_existing_name_and_data(self):
+        """Report no change when the target already maps to identical data."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             bdf = root / "bdf.elf"
@@ -44,6 +45,7 @@ class BoardTests(unittest.TestCase):
             self.assertEqual(result.action, "none")
 
     def test_adds_alias_for_identical_data(self):
+        """Add an alias instead of duplicating an existing payload."""
         for driver in ENCODERS:
             with self.subTest(driver=driver), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
@@ -57,15 +59,14 @@ class BoardTests(unittest.TestCase):
                 self.assertEqual(verified.action, "none")
 
     def test_adds_new_payload(self):
+        """Add a new board entry when no payload is identical."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             bdf = root / "bdf.elf"
             bdf.write_bytes(b"\x7fELF" + b"c" * 5000)
             container = self.make_container(root, "ath12k_pci", [(["old-name"], b"other")])
             output = root / "rebuilt.bin"
-            result = build_update(
-                container, "ath12k_pci", "new-name", bdf, output, ENCODERS["ath12k_pci"]
-            )
+            result = build_update(container, "ath12k_pci", "new-name", bdf, output, ENCODERS["ath12k_pci"])
             self.assertEqual(result.action, "add")
             self.assertEqual(
                 inspect_update(output, "ath12k_pci", "new-name", bdf, ENCODERS["ath12k_pci"]).action,
@@ -73,6 +74,7 @@ class BoardTests(unittest.TestCase):
             )
 
     def test_rejects_conflicting_name(self):
+        """Reject a target name that maps to different calibration data."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             bdf = root / "bdf.elf"
@@ -82,6 +84,7 @@ class BoardTests(unittest.TestCase):
                 inspect_update(container, "ath12k_pci", "target", bdf, ENCODERS["ath12k_pci"])
 
     def test_rejects_unsafe_extraction_name(self):
+        """Reject embedded names that could escape the extraction directory."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             bdf = root / "bdf.elf"
@@ -92,6 +95,7 @@ class BoardTests(unittest.TestCase):
             self.assertFalse((root.parent / "escape.bin").exists())
 
     def test_rejects_unknown_container_element(self):
+        """Reject unsupported container elements that cannot be preserved."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             bdf = root / "bdf.elf"

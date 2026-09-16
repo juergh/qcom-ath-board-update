@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import __version__
@@ -28,6 +28,7 @@ from .windows import WindowsMount, registry_board_filename, resolve_board_file, 
 
 
 def parser() -> argparse.ArgumentParser:
+    """Build the command-line argument parser."""
     result = argparse.ArgumentParser(
         description="Install ath11k/ath12k board data selected by the Windows BDFilename registry value."
     )
@@ -50,6 +51,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def _context(args: argparse.Namespace):
+    """Resolve the device, board identifier, and source container."""
     log = args.kernel_log.read_text(encoding="utf-8") if args.kernel_log else kernel_log()
     device = choose_device(discover_devices(args.sysfs_root, log), args.device)
     board_name = args.board_name or device.board_name
@@ -65,6 +67,7 @@ def _context(args: argparse.Namespace):
 
 
 def _with_bdf(args: argparse.Namespace, device, callback):
+    """Resolve a direct or Windows-selected BDF and invoke an operation."""
     if args.bdf_file:
         validate_board_file(args.bdf_file)
         return callback(args.bdf_file, None)
@@ -72,10 +75,16 @@ def _with_bdf(args: argparse.Namespace, device, callback):
         registry = registry_board_filename(windows_root, device)
         bdf = resolve_board_file(windows_root, registry.filename)
         validate_board_file(bdf)
-        return callback(bdf, {"registry_key": registry.key, "registry_filename": registry.filename, "windows_root": str(windows_root)})
+        return callback(
+            bdf,
+            {"registry_key": registry.key, "registry_filename": registry.filename, "windows_root": str(windows_root)},
+        )
 
 
-def _report(args: argparse.Namespace, device, container: Path, bdf: Path, update: BoardUpdate, extra: dict | None) -> None:
+def _report(
+    args: argparse.Namespace, device, container: Path, bdf: Path, update: BoardUpdate, extra: dict | None
+) -> None:
+    """Print the inspection result as text or JSON."""
     payload = {
         "device": asdict(device),
         "container": str(container),
@@ -99,6 +108,7 @@ def _report(args: argparse.Namespace, device, container: Path, bdf: Path, update
 
 
 def _compress(source: Path, destination: Path) -> None:
+    """Compress a rebuilt board container with Zstandard."""
     with destination.open("wb") as output:
         result = subprocess.run(["zstd", "-q", "-19", "-c", str(source)], stdout=output, check=False)
     if result.returncode != 0:
@@ -106,13 +116,14 @@ def _compress(source: Path, destination: Path) -> None:
 
 
 def _atomic_install(source: Path, target: Path, metadata: dict[str, object]) -> None:
+    """Install a firmware overlay and manifest with backup and locking."""
     target.parent.mkdir(parents=True, exist_ok=True)
     state = Path("/var/lib/qcom-ath-board-update")
     backups = state / "backups"
     backups.mkdir(parents=True, exist_ok=True)
     with (state / "lock").open("w", encoding="ascii") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
         target_id = hashlib.sha256(str(target).encode()).hexdigest()[:12]
         if target.exists():
             backup = backups / f"{timestamp}-{target_id}-{target.name}"
@@ -133,7 +144,7 @@ def _atomic_install(source: Path, target: Path, metadata: dict[str, object]) -> 
                 os.unlink(temporary)
         metadata["installed_file"] = str(target)
         metadata["installed_sha256"] = file_hash(target)
-        metadata["installed_at"] = datetime.now(timezone.utc).isoformat()
+        metadata["installed_at"] = datetime.now(UTC).isoformat()
         manifest_fd, manifest_temporary = tempfile.mkstemp(prefix=".manifest.", dir=state)
         try:
             with os.fdopen(manifest_fd, "w", encoding="utf-8") as manifest:
@@ -150,6 +161,7 @@ def _atomic_install(source: Path, target: Path, metadata: dict[str, object]) -> 
 
 
 def _fsync_directory(path: Path) -> None:
+    """Persist directory entry changes to storage."""
     directory_fd = os.open(path, os.O_DIRECTORY)
     try:
         os.fsync(directory_fd)
@@ -158,6 +170,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _update_initramfs() -> None:
+    """Regenerate initramfs images with the available distribution tool."""
     if command := shutil.which("update-initramfs"):
         result = subprocess.run([command, "-u", "-k", "all"], check=False)
     elif command := shutil.which("dracut"):
@@ -170,6 +183,7 @@ def _update_initramfs() -> None:
 
 
 def run(args: argparse.Namespace) -> int:
+    """Execute an inspect, verify, or install operation."""
     device, board_name, relative, container = _context(args)
     relative = validate_firmware_relative_path(relative)
     driver = device.driver
@@ -177,6 +191,7 @@ def run(args: argparse.Namespace) -> int:
         driver = "ath11k_pci" if relative.startswith("ath11k/") else "ath12k_pci"
 
     def perform(bdf: Path, windows_metadata: dict | None) -> int:
+        """Inspect the selected BDF and optionally install its mapping."""
         update = inspect_update(container, driver, board_name, bdf, args.encoder)
         _report(args, device, container, bdf, update, windows_metadata)
         if args.command in {"inspect", "verify"}:
@@ -220,6 +235,7 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
+    """Run the command-line interface with concise error handling."""
     args = parser().parse_args()
     try:
         raise SystemExit(run(args))

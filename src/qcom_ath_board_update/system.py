@@ -25,10 +25,12 @@ class AthDevice:
 
 
 def _read_hex(path: Path) -> str:
+    """Read and normalize a hexadecimal sysfs attribute."""
     return path.read_text(encoding="ascii").strip().removeprefix("0x").lower().zfill(4)
 
 
 def kernel_log() -> str:
+    """Read kernel messages from the current boot."""
     commands = (
         ["journalctl", "-k", "-b", "--no-pager", "-o", "cat"],
         ["dmesg"],
@@ -46,6 +48,7 @@ def kernel_log() -> str:
 
 
 def discover_devices(sysfs_root: Path = Path("/sys/bus/pci/devices"), log: str = "") -> list[AthDevice]:
+    """Discover Qualcomm PCI Wi-Fi devices and enrich them from kernel logs."""
     devices: list[AthDevice] = []
     for path in sorted(sysfs_root.iterdir()):
         try:
@@ -77,6 +80,7 @@ def discover_devices(sysfs_root: Path = Path("/sys/bus/pci/devices"), log: str =
 
 
 def _add_log_data(device: AthDevice, log: str) -> None:
+    """Add QMI and firmware details from kernel messages to a device."""
     lines = [line for line in log.splitlines() if device.address in line]
     text = "\n".join(lines)
     ids = re.search(r"chip_id\s+0x([0-9a-f]+).*?board_id\s+0x([0-9a-f]+)", text, re.I | re.S)
@@ -107,6 +111,7 @@ def _add_log_data(device: AthDevice, log: str) -> None:
 
 
 def choose_device(devices: list[AthDevice], address: str | None) -> AthDevice:
+    """Select one Wi-Fi device or report an ambiguous selection."""
     if address:
         matches = [device for device in devices if device.address == address]
         if not matches:
@@ -123,6 +128,7 @@ def choose_device(devices: list[AthDevice], address: str | None) -> AthDevice:
 
 
 def find_board_container(relative_path: str, override: Path | None = None) -> Path:
+    """Locate the active compressed or uncompressed board container."""
     relative_path = validate_firmware_relative_path(relative_path)
     if override:
         if not override.is_file():
@@ -148,6 +154,7 @@ def find_board_container(relative_path: str, override: Path | None = None) -> Pa
 
 
 def validate_firmware_relative_path(value: str) -> str:
+    """Validate and normalize a board-container firmware path."""
     path = PurePosixPath(value)
     if (
         path.is_absolute()
@@ -156,13 +163,12 @@ def validate_firmware_relative_path(value: str) -> str:
         or path.name != "board-2.bin"
         or any(part in {"", ".", ".."} for part in path.parts)
     ):
-        raise UpdateError(
-            "firmware path must be a relative ath11k/.../board-2.bin or ath12k/.../board-2.bin path"
-        )
+        raise UpdateError("firmware path must be a relative ath11k/.../board-2.bin or ath12k/.../board-2.bin path")
     return path.as_posix()
 
 
 def infer_relative_path(container: Path) -> str | None:
+    """Infer a firmware-relative path from an absolute container path."""
     parts = container.parts
     for family in ("ath11k", "ath12k"):
         if family in parts:

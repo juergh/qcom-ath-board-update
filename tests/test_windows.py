@@ -8,14 +8,17 @@ from qcom_ath_board_update.windows import registry_board_filename, resolve_board
 
 
 def reg_hex(value: str) -> str:
+    """Encode a string as registry-style UTF-16 hexadecimal bytes."""
     return ",".join(f"{byte:02x}" for byte in (value + "\0").encode("utf-16-le"))
 
 
 class WindowsTests(unittest.TestCase):
     def device(self) -> AthDevice:
+        """Create the Qualcomm PCI device used by registry tests."""
         return AthDevice("0004:01:00.0", "ath12k_pci", "17cb", "1107", "17cb", "1107")
 
     def test_reads_bdfilename_from_active_control_set(self):
+        """Read BDFilename from the control set selected by Windows."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             hive = root / "Windows/System32/config/SYSTEM"
@@ -38,6 +41,7 @@ class WindowsTests(unittest.TestCase):
             self.assertIn("ControlSet002", exported.call_args_list[1].args[1])
 
     def test_resolves_newest_driver_store_copy(self):
+        """Choose the newest case-insensitive DriverStore filename match."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             store = root / "Windows/System32/DriverStore/FileRepository"
@@ -57,6 +61,7 @@ class WindowsTests(unittest.TestCase):
             self.assertEqual(resolve_board_file(root, "BDWLAN.ELF"), new)
 
     def test_validates_elf(self):
+        """Accept ELF board files and reject other payload formats."""
         with tempfile.TemporaryDirectory() as temporary:
             board = Path(temporary) / "board.elf"
             board.write_bytes(b"\x7fELF" + b"x" * 4096)

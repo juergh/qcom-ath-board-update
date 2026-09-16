@@ -5,13 +5,11 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from .system import AthDevice, UpdateError
-
 
 DRIVER_STORE = Path("Windows/System32/DriverStore/FileRepository")
 SYSTEM_HIVE = Path("Windows/System32/config/SYSTEM")
@@ -26,6 +24,7 @@ class RegistryBoard:
 
 
 def _run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    """Run a required system command and translate missing-command errors."""
     try:
         return subprocess.run(command, text=True, check=False, **kwargs)
     except FileNotFoundError as error:
@@ -34,6 +33,7 @@ def _run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[st
 
 class WindowsMount:
     def __init__(self, root: Path | None = None, device: Path | None = None):
+        """Configure Windows volume discovery or an explicit source."""
         self.explicit_root = root
         self.explicit_device = device
         self.root: Path | None = None
@@ -41,6 +41,7 @@ class WindowsMount:
         self._mounted: list[Path] = []
 
     def __enter__(self) -> Path:
+        """Find, unlock, and mount a Windows system volume when needed."""
         try:
             if self.explicit_root:
                 self.root = self.explicit_root
@@ -51,11 +52,7 @@ class WindowsMount:
             candidates = entries
             if self.explicit_device:
                 requested = self.explicit_device.resolve()
-                candidates = [
-                    entry
-                    for entry in entries
-                    if Path(str(entry.get("name", ""))).resolve() == requested
-                ]
+                candidates = [entry for entry in entries if Path(str(entry.get("name", ""))).resolve() == requested]
                 if not candidates:
                     candidates = [
                         {"name": str(self.explicit_device), "fstype": self._probe_fstype(self.explicit_device)}
@@ -90,9 +87,11 @@ class WindowsMount:
             raise
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        """Unmount temporary Windows and BitLocker mounts."""
         self.close(report_errors=exc_type is None)
 
     def close(self, report_errors: bool = False) -> None:
+        """Release mounts and temporary directories created by this object."""
         failures: list[str] = []
         for mountpoint in reversed(self._mounted):
             result = _run(["umount", str(mountpoint)], capture_output=True)
@@ -110,11 +109,13 @@ class WindowsMount:
             raise UpdateError("failed to unmount Windows volume: " + "; ".join(failures))
 
     def _validate(self) -> None:
+        """Confirm that the selected root contains a usable Windows install."""
         assert self.root is not None
         if not (self.root / DRIVER_STORE).is_dir() or not (self.root / SYSTEM_HIVE).is_file():
             raise UpdateError(f"not a Windows system volume: {self.root}")
 
     def _block_devices(self) -> list[dict[str, object]]:
+        """Return a flattened inventory of local block devices."""
         result = _run(
             ["lsblk", "--json", "--paths", "--output", "NAME,FSTYPE,LABEL,MOUNTPOINTS,TYPE"],
             capture_output=True,
@@ -123,6 +124,7 @@ class WindowsMount:
             raise UpdateError(f"lsblk failed: {result.stderr.strip()}")
 
         def flatten(items: list[dict[str, object]]) -> list[dict[str, object]]:
+            """Flatten the nested lsblk device hierarchy."""
             output: list[dict[str, object]] = []
             for item in items:
                 output.append(item)
@@ -133,10 +135,12 @@ class WindowsMount:
 
     @staticmethod
     def _probe_fstype(device: Path) -> str:
+        """Probe a block device's filesystem type."""
         result = _run(["blkid", "-o", "value", "-s", "TYPE", str(device)], capture_output=True)
         return result.stdout.strip() if result.returncode == 0 else ""
 
     def _mount_device(self, device: Path, bitlocker: bool) -> Path:
+        """Mount a plain or BitLocker-protected Windows device read-only."""
         if os.geteuid() != 0:
             raise UpdateError("mounting a Windows volume requires root")
         base = Path("/run") if os.access("/run", os.W_OK) else None
@@ -167,6 +171,7 @@ class WindowsMount:
 
     @staticmethod
     def _mount_ntfs(device: Path, mountpoint: Path, loop: bool) -> None:
+        """Mount an NTFS filesystem read-only using the available driver."""
         options = ["ro", "nosuid", "nodev", "noexec"]
         if loop:
             options.insert(0, "loop")
@@ -182,6 +187,7 @@ class WindowsMount:
 
 
 def _registry_export(hive: Path, key: str) -> str:
+    """Export one key from an offline Windows registry hive."""
     result = _run(["hivexregedit", "--export", str(hive), key], capture_output=True)
     if result.returncode != 0:
         raise UpdateError(f"failed to read Windows registry key {key}: {result.stderr.strip()}")
@@ -189,6 +195,7 @@ def _registry_export(hive: Path, key: str) -> str:
 
 
 def _active_control_set(hive: Path) -> str:
+    """Determine the control set active in the Windows installation."""
     exported = _registry_export(hive, r"\Select")
     match = re.search(r'^"Current"=dword:([0-9a-f]+)', exported, re.I | re.M)
     if not match:
@@ -197,6 +204,7 @@ def _active_control_set(hive: Path) -> str:
 
 
 def _logical_registry_lines(exported: str) -> list[str]:
+    """Join continued lines in a registry export."""
     lines: list[str] = []
     pending = ""
     for raw in exported.splitlines():
@@ -216,6 +224,7 @@ def _logical_registry_lines(exported: str) -> list[str]:
 
 
 def _decode_reg_value(value: str) -> str:
+    """Decode quoted or UTF-16 hexadecimal registry data."""
     value = value.strip()
     if value.startswith('"') and value.endswith('"'):
         return value[1:-1].replace(r"\\", "\\")
@@ -230,6 +239,7 @@ def _decode_reg_value(value: str) -> str:
 
 
 def registry_board_filename(windows_root: Path, device: AthDevice) -> RegistryBoard:
+    """Find the Windows BDFilename associated with a PCI Wi-Fi device."""
     hive = windows_root / SYSTEM_HIVE
     control_set = _active_control_set(hive)
     key = rf"\{control_set}\Control\Class\{NETWORK_CLASS}"
@@ -263,9 +273,7 @@ def registry_board_filename(windows_root: Path, device: AthDevice) -> RegistryBo
 
     windows_subsys = f"subsys_{device.subsystem_device}{device.subsystem_vendor}"
     hardware_tokens = (f"ven_{device.vendor}", f"dev_{device.device}", windows_subsys)
-    matches = [
-        board for board in boards if all(token in board.section.casefold() for token in hardware_tokens)
-    ]
+    matches = [board for board in boards if all(token in board.section.casefold() for token in hardware_tokens)]
     if len(matches) == 1:
         return matches[0]
     choices = ", ".join(sorted({board.filename for board in boards}))
@@ -273,6 +281,7 @@ def registry_board_filename(windows_root: Path, device: AthDevice) -> RegistryBo
 
 
 def resolve_board_file(windows_root: Path, filename: str) -> Path:
+    """Resolve a BDFilename to the newest matching DriverStore file."""
     basename = Path(filename.replace("\\", "/")).name.casefold()
     matches: list[Path] = []
     root = windows_root / DRIVER_STORE
@@ -286,6 +295,7 @@ def resolve_board_file(windows_root: Path, filename: str) -> Path:
 
 
 def validate_board_file(path: Path) -> None:
+    """Check that a selected board file is a plausible ELF BDF."""
     try:
         size = path.stat().st_size
         magic = path.read_bytes()[:4]

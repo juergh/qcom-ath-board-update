@@ -7,6 +7,7 @@ from qcom_ath_board_update.system import UpdateError, choose_device, discover_de
 
 class SystemTests(unittest.TestCase):
     def test_discovers_device_and_parses_kernel_log(self):
+        """Discover a device and obtain its board details from kernel messages."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             device = root / "0004:01:00.0"
@@ -38,6 +39,7 @@ class SystemTests(unittest.TestCase):
             self.assertIn("qmi-board-id=255", selected.board_name)
 
     def test_rejects_unsafe_firmware_paths(self):
+        """Reject absolute and escaping firmware-relative paths."""
         self.assertEqual(
             validate_firmware_relative_path("ath11k/WCN6855/hw2.1/board-2.bin"),
             "ath11k/WCN6855/hw2.1/board-2.bin",
