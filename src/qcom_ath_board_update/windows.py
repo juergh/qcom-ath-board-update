@@ -8,12 +8,26 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict, cast
 
 from .system import AthDevice, UpdateError
 
 DRIVER_STORE = Path("Windows/System32/DriverStore/FileRepository")
 SYSTEM_HIVE = Path("Windows/System32/config/SYSTEM")
 NETWORK_CLASS = "{4d36e972-e325-11ce-bfc1-08002be10318}"
+
+
+class BlockDevice(TypedDict, total=False):
+    name: str
+    fstype: str | None
+    label: str | None
+    mountpoints: list[str | None]
+    type: str
+    children: list[BlockDevice]
+
+
+class LsblkOutput(TypedDict):
+    blockdevices: list[BlockDevice]
 
 
 @dataclass
@@ -23,10 +37,10 @@ class RegistryBoard:
     section: str
 
 
-def _run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+def _run(command: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
     """Run a required system command and translate missing-command errors."""
     try:
-        return subprocess.run(command, text=True, check=False, **kwargs)
+        return subprocess.run(command, text=True, check=False, capture_output=capture_output)
     except FileNotFoundError as error:
         raise UpdateError(f"required command not found: {command[0]}") from error
 
@@ -59,7 +73,7 @@ class WindowsMount:
                     ]
 
             for entry in candidates:
-                for mountpoint in entry.get("mountpoints") or []:
+                for mountpoint in entry.get("mountpoints", []):
                     if not mountpoint:
                         continue
                     candidate = Path(mountpoint)
@@ -114,7 +128,7 @@ class WindowsMount:
         if not (self.root / DRIVER_STORE).is_dir() or not (self.root / SYSTEM_HIVE).is_file():
             raise UpdateError(f"not a Windows system volume: {self.root}")
 
-    def _block_devices(self) -> list[dict[str, object]]:
+    def _block_devices(self) -> list[BlockDevice]:
         """Return a flattened inventory of local block devices."""
         result = _run(
             ["lsblk", "--json", "--paths", "--output", "NAME,FSTYPE,LABEL,MOUNTPOINTS,TYPE"],
@@ -123,15 +137,16 @@ class WindowsMount:
         if result.returncode != 0:
             raise UpdateError(f"lsblk failed: {result.stderr.strip()}")
 
-        def flatten(items: list[dict[str, object]]) -> list[dict[str, object]]:
+        def flatten(items: list[BlockDevice]) -> list[BlockDevice]:
             """Flatten the nested lsblk device hierarchy."""
-            output: list[dict[str, object]] = []
+            output: list[BlockDevice] = []
             for item in items:
                 output.append(item)
-                output.extend(flatten(item.get("children", [])))  # type: ignore[arg-type]
+                output.extend(flatten(item.get("children", [])))
             return output
 
-        return flatten(json.loads(result.stdout).get("blockdevices", []))
+        data = cast(LsblkOutput, json.loads(result.stdout))
+        return flatten(data["blockdevices"])
 
     @staticmethod
     def _probe_fstype(device: Path) -> str:
