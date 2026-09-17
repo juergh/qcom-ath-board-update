@@ -13,6 +13,8 @@ authors = [{name = "Juerg Haefliger", email = "juerg.haefliger@canonical.com"}]
 
 [project.scripts]
 qcom-ath-board-update = "qcom_ath_board_update.cli:main"
+mount-windows = "qcom_ath_board_update.mount_windows_cli:mount_main"
+umount-windows = "qcom_ath_board_update.mount_windows_cli:umount_main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

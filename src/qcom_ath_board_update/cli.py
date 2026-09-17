@@ -24,7 +24,13 @@ from .system import (
     kernel_log,
     validate_firmware_relative_path,
 )
-from .windows import WindowsMount, registry_board_filename, resolve_board_file, validate_board_file
+from .windows import (
+    WindowsMount,
+    registry_board_filename,
+    resolve_board_file,
+    validate_board_file,
+    validate_driver_store,
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -72,6 +78,7 @@ def _with_bdf(args: argparse.Namespace, device, callback):
         validate_board_file(args.bdf_file)
         return callback(args.bdf_file, None)
     with WindowsMount(args.windows_root, args.windows_device) as windows_root:
+        validate_driver_store(windows_root)
         registry = registry_board_filename(windows_root, device)
         bdf = resolve_board_file(windows_root, registry.filename)
         validate_board_file(bdf)

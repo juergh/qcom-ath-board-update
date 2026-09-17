@@ -1,0 +1,52 @@
+.TH UMOUNT-WINDOWS 8 "September 2026" "qcom-ath-board-update" "System Administration"
+.SH NAME
+umount-windows \- unmount a Windows volume mounted by mount-windows
+.SH SYNOPSIS
+.B umount-windows
+.RI [ options ] " " [ target ]
+.br
+.B umount-windows
+.B --all
+.SH DESCRIPTION
+.B umount-windows
+releases a Windows volume previously mounted by
+.BR mount-windows (8),
+including any BitLocker
+.B dislocker
+mount it depends on, and removes the temporary directories it created.
+.PP
+.I target
+is either the mountpoint printed by
+.B mount-windows
+or the source block device that was mounted.
+.B umount-windows
+only acts on mounts it can find in its own state; it refuses targets it did
+not create.
+.SH OPTIONS
+.TP
+.B --all
+Unmount every Windows volume currently tracked by
+.BR mount-windows ,
+instead of a single target.
+.TP
+.B --force
+Force the unmount, as with
+.BR "umount -f" .
+.TP
+.B --lazy
+Detach the mount lazily, as with
+.BR "umount -l" .
+.SH FILES
+.TP
+.B /run/mount-windows
+State tracking the mounts created by
+.BR mount-windows (8),
+consulted and updated by this tool.
+.SH EXIT STATUS
+Returns zero on success and non-zero if the target is not a mount tracked by
+.BR mount-windows ,
+if the unmount fails, or if the caller is not root.
+.SH SEE ALSO
+.BR mount-windows (8),
+.BR qcom-ath-board-update (8),
+.BR umount (8)

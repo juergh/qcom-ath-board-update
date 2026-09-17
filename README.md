@@ -66,6 +66,22 @@ protector normally cannot be unlocked automatically from Linux. The simplest
 alternative is to unlock or disable BitLocker in Windows first, or mount the
 volume separately and pass `--windows-root`.
 
+## mount-windows / umount-windows
+
+The package also installs two standalone tools that mount and unmount a
+Windows system volume read-only, independent of firmware updates:
+
+```console
+sudo mount-windows
+sudo umount-windows /run/mount-windows-xxxxxxxx/windows
+```
+
+`mount-windows` finds and mounts the Windows system volume (unlocking
+BitLocker with `dislocker` if needed) and prints the resulting mountpoint;
+`umount-windows` releases it again, by mountpoint or source device. `--list`
+shows mounts currently tracked, and `--all` on `umount-windows` releases all
+of them. See `mount-windows(8)` and `umount-windows(8)`.
+
 ## Board selection
 
 The active Windows control set is read from `SYSTEM\Select\Current`. The tool

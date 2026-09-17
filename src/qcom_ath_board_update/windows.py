@@ -45,6 +45,21 @@ def _run(command: list[str], *, capture_output: bool = False) -> subprocess.Comp
         raise UpdateError(f"required command not found: {command[0]}") from error
 
 
+def unmount_path(mountpoint: Path, *, force: bool = False, lazy: bool = False) -> str | None:
+    """Unmount one mountpoint, falling back to a FUSE helper. Returns an error string, or None on success."""
+    options = [flag for flag, enabled in (("-f", force), ("-l", lazy)) if enabled]
+    result = _run(["umount", *options, str(mountpoint)], capture_output=True)
+    if result.returncode == 0 or not os.path.ismount(mountpoint):
+        return None
+    fusermount = shutil.which("fusermount3") or shutil.which("fusermount")
+    if fusermount:
+        fuse_options = ["-u", *(["-z"] if lazy else [])]
+        result = _run([fusermount, *fuse_options, str(mountpoint)], capture_output=True)
+        if result.returncode == 0 or not os.path.ismount(mountpoint):
+            return None
+    return result.stderr.strip()
+
+
 class WindowsMount:
     def __init__(self, root: Path | None = None, device: Path | None = None):
         """Configure Windows volume discovery or an explicit source."""
@@ -53,8 +68,17 @@ class WindowsMount:
         self.root: Path | None = None
         self._temporary: Path | None = None
         self._mounted: list[Path] = []
+        self.device: Path | None = None
+        self.fstype: str | None = None
+        self.bitlocker: bool = False
+        self.dislocker_clear: Path | None = None
 
-    def __enter__(self) -> Path:
+    @property
+    def temporary(self) -> Path | None:
+        """Return the working directory created for this mount, if any."""
+        return self._temporary
+
+    def acquire(self) -> Path:
         """Find, unlock, and mount a Windows system volume when needed."""
         try:
             if self.explicit_root:
@@ -77,8 +101,10 @@ class WindowsMount:
                     if not mountpoint:
                         continue
                     candidate = Path(mountpoint)
-                    if (candidate / DRIVER_STORE).is_dir():
+                    if (candidate / SYSTEM_HIVE).is_file():
                         self.root = candidate
+                        self.device = Path(str(entry.get("name", "")))
+                        self.fstype = str(entry.get("fstype") or "") or None
                         self._validate()
                         return self.root
 
@@ -88,6 +114,7 @@ class WindowsMount:
                 if fstype not in {"ntfs", "bitlocker"} and "bitlocker" not in fstype:
                     continue
                 try:
+                    self.fstype = fstype
                     self.root = self._mount_device(Path(str(entry["name"])), "bitlocker" in fstype)
                     self._validate()
                     return self.root
@@ -100,6 +127,10 @@ class WindowsMount:
             self.close()
             raise
 
+    def __enter__(self) -> Path:
+        """Context-manager entry point; see acquire()."""
+        return self.acquire()
+
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
         """Unmount temporary Windows and BitLocker mounts."""
         self.close(report_errors=exc_type is None)
@@ -108,13 +139,9 @@ class WindowsMount:
         """Release mounts and temporary directories created by this object."""
         failures: list[str] = []
         for mountpoint in reversed(self._mounted):
-            result = _run(["umount", str(mountpoint)], capture_output=True)
-            if result.returncode != 0 and os.path.ismount(mountpoint):
-                fusermount = shutil.which("fusermount3") or shutil.which("fusermount")
-                if fusermount:
-                    result = _run([fusermount, "-u", str(mountpoint)], capture_output=True)
-            if result.returncode != 0 and os.path.ismount(mountpoint):
-                failures.append(f"{mountpoint}: {result.stderr.strip()}")
+            error = unmount_path(mountpoint)
+            if error:
+                failures.append(f"{mountpoint}: {error}")
         self._mounted = [path for path in self._mounted if os.path.ismount(path)]
         if self._temporary and not self._mounted:
             shutil.rmtree(self._temporary, ignore_errors=True)
@@ -125,7 +152,7 @@ class WindowsMount:
     def _validate(self) -> None:
         """Confirm that the selected root contains a usable Windows install."""
         assert self.root is not None
-        if not (self.root / DRIVER_STORE).is_dir() or not (self.root / SYSTEM_HIVE).is_file():
+        if not (self.root / SYSTEM_HIVE).is_file():
             raise UpdateError(f"not a Windows system volume: {self.root}")
 
     def _block_devices(self) -> list[BlockDevice]:
@@ -159,10 +186,13 @@ class WindowsMount:
         if os.geteuid() != 0:
             raise UpdateError("mounting a Windows volume requires root")
         base = Path("/run") if os.access("/run", os.W_OK) else None
-        self._temporary = Path(tempfile.mkdtemp(prefix="qcom-ath-board-update-", dir=base))
+        self._temporary = Path(tempfile.mkdtemp(prefix="mount-windows-", dir=base))
+        self.device = device
+        self.bitlocker = bitlocker
         windows = self._temporary / "windows"
         windows.mkdir()
         if not bitlocker:
+            self.dislocker_clear = None
             self._mount_ntfs(device, windows, loop=False)
             self._mounted.append(windows)
             return windows
@@ -172,6 +202,7 @@ class WindowsMount:
             raise UpdateError("BitLocker volume found but dislocker is not installed")
         clear = self._temporary / "dislocker"
         clear.mkdir()
+        self.dislocker_clear = clear
         print(f"BitLocker volume {device} requires its recovery password.")
         result = _run([dislocker, "-r", "-V", str(device), "-p", "--", str(clear)])
         if os.path.ismount(clear):
@@ -199,6 +230,12 @@ class WindowsMount:
         result = _run(["ntfs-3g", "-o", ",".join(options), str(device), str(mountpoint)], capture_output=True)
         if result.returncode != 0:
             raise UpdateError(f"failed to mount {device} read-only: {result.stderr.strip()}")
+
+
+def validate_driver_store(root: Path) -> None:
+    """Confirm a mounted Windows volume also has a DriverStore to search."""
+    if not (root / DRIVER_STORE).is_dir():
+        raise UpdateError(f"Windows volume has no DriverStore: {root}")
 
 
 def _registry_export(hive: Path, key: str) -> str:

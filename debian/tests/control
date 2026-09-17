@@ -1,4 +1,4 @@
-Test-Command: qcom-ath-board-update --help >/dev/null && test -x /usr/libexec/qcom-ath-board-update/ath11k-bdencoder && test -x /usr/libexec/qcom-ath-board-update/ath12k-bdencoder
+Test-Command: qcom-ath-board-update --help >/dev/null && mount-windows --help >/dev/null && umount-windows --help >/dev/null && test -x /usr/libexec/qcom-ath-board-update/ath11k-bdencoder && test -x /usr/libexec/qcom-ath-board-update/ath12k-bdencoder
 Depends: @
 Restrictions: superficial
 

@@ -1,0 +1,57 @@
+.TH MOUNT-WINDOWS 8 "September 2026" "qcom-ath-board-update" "System Administration"
+.SH NAME
+mount-windows \- mount a Windows system volume read-only
+.SH SYNOPSIS
+.B mount-windows
+.RI [ options ]
+.SH DESCRIPTION
+.B mount-windows
+finds the Windows system volume on local block devices, unlocks it with
+.BR dislocker (1)
+if it is BitLocker-protected, and mounts it read-only with
+.BR nosuid , nodev ", and " noexec .
+It prints the resulting mountpoint and leaves the volume mounted; run
+.BR umount-windows (8)
+to release it.
+.PP
+If an already-mounted filesystem is found to be the Windows system volume
+(for example one listed in
+.BR fstab (5)),
+.B mount-windows
+reports its existing mountpoint without creating a new mount of its own. Such
+a volume is not tracked, and
+.B umount-windows
+will not act on it.
+.PP
+BitLocker volumes are opened with
+.B dislocker
+in read-only mode. Dislocker prompts for a recovery password without exposing
+it in the process command line. TPM-only protectors generally require the
+volume to be unlocked in Windows first.
+.SH OPTIONS
+.TP
+.BI --windows-device " DEVICE"
+Mount a specific NTFS or BitLocker block device instead of searching all
+local block devices.
+.TP
+.B --json
+Print the result (or, with
+.BR --list ,
+the tracked mounts) as JSON.
+.TP
+.B --list
+List the Windows volumes currently mounted by
+.B mount-windows
+instead of mounting a new one.
+.SH FILES
+.TP
+.B /run/mount-windows
+State tracking the mounts created by this tool, consulted by
+.BR umount-windows (8).
+.SH EXIT STATUS
+Returns zero on success and non-zero if no Windows volume was found, if
+BitLocker unlocking failed, or if the caller is not root.
+.SH SEE ALSO
+.BR umount-windows (8),
+.BR qcom-ath-board-update (8),
+.BR dislocker-fuse (1)

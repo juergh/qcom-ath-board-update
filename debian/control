@@ -29,3 +29,7 @@ Description: install Qualcomm ath11k/ath12k board data from Windows
  .
  Windows and BitLocker volumes are accessed read-only. Generated firmware is
  installed as a local overlay without replacing package-owned firmware.
+ .
+ Also includes mount-windows and umount-windows, standalone tools that
+ mount and unmount a Windows system volume read-only, including BitLocker
+ support via dislocker.
