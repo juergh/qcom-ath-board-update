@@ -43,6 +43,11 @@ the tracked mounts) as JSON.
 List the Windows volumes currently mounted by
 .B mount-windows
 instead of mounting a new one.
+.TP
+.B -v ", " --verbose
+Print diagnostic detail (block devices considered, mount attempts) to
+standard error. Repeat for more detail
+.RB ( -vv " prints a full Python traceback for unexpected errors)."
 .SH FILES
 .TP
 .B /run/mount-windows

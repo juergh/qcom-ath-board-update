@@ -4,12 +4,13 @@ import argparse
 import json
 import os
 import sys
+import traceback
 from dataclasses import asdict
 from pathlib import Path
 
 from . import __version__
 from .mount_windows import TrackedMount, find, list_mounts, save, unwind
-from .system import UpdateError
+from .system import UpdateError, configure_logging
 from .windows import WindowsMount
 
 
@@ -20,6 +21,13 @@ def _mount_parser() -> argparse.ArgumentParser:
     parser.add_argument("--windows-device", type=Path, help="mount a specific NTFS or BitLocker block device")
     parser.add_argument("--json", action="store_true", help="print machine-readable output")
     parser.add_argument("--list", action="store_true", help="list mounts created by mount-windows")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="print diagnostic detail to stderr; repeat for more (-vv)",
+    )
     return parser
 
 
@@ -66,10 +74,13 @@ def _run_mount(args: argparse.Namespace) -> int:
 def mount_main() -> None:
     """Entry point for the mount-windows command."""
     args = _mount_parser().parse_args()
+    configure_logging(args.verbose)
     try:
         raise SystemExit(_run_mount(args))
     except (UpdateError, OSError, ValueError) as error:
         print(f"Error: {error}", file=sys.stderr)
+        if args.verbose >= 2:
+            traceback.print_exc()
         raise SystemExit(1) from error
 
 
@@ -81,6 +92,13 @@ def _umount_parser() -> argparse.ArgumentParser:
     parser.add_argument("--all", action="store_true", help="unmount every mount tracked by mount-windows")
     parser.add_argument("--force", action="store_true", help="force the unmount (umount -f)")
     parser.add_argument("--lazy", action="store_true", help="detach lazily (umount -l)")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="print diagnostic detail to stderr; repeat for more (-vv)",
+    )
     return parser
 
 
@@ -115,10 +133,13 @@ def _run_umount(args: argparse.Namespace) -> int:
 def umount_main() -> None:
     """Entry point for the umount-windows command."""
     args = _umount_parser().parse_args()
+    configure_logging(args.verbose)
     try:
         raise SystemExit(_run_umount(args))
     except (UpdateError, OSError, ValueError) as error:
         print(f"Error: {error}", file=sys.stderr)
+        if args.verbose >= 2:
+            traceback.print_exc()
         raise SystemExit(1) from error
 
 

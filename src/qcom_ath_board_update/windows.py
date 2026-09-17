@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict, cast
 
-from .system import AthDevice, UpdateError
+from .system import AthDevice, UpdateError, logger
 
 DRIVER_STORE = Path("Windows/System32/DriverStore/FileRepository")
 SYSTEM_HIVE = Path("Windows/System32/config/SYSTEM")
@@ -39,10 +39,14 @@ class RegistryBoard:
 
 def _run(command: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
     """Run a required system command and translate missing-command errors."""
+    logger.debug("running: %s", " ".join(command))
     try:
-        return subprocess.run(command, text=True, check=False, capture_output=capture_output)
+        result = subprocess.run(command, text=True, check=False, capture_output=capture_output)
     except FileNotFoundError as error:
         raise UpdateError(f"required command not found: {command[0]}") from error
+    if result.returncode != 0:
+        logger.debug("%s exited %d", command[0], result.returncode)
+    return result
 
 
 def unmount_path(mountpoint: Path, *, force: bool = False, lazy: bool = False) -> str | None:
@@ -83,10 +87,12 @@ class WindowsMount:
         try:
             if self.explicit_root:
                 self.root = self.explicit_root
+                logger.debug("using explicit --windows-root %s", self.root)
                 self._validate()
                 return self.root
 
             entries = self._block_devices()
+            logger.debug("lsblk reported %d block device(s)", len(entries))
             candidates = entries
             if self.explicit_device:
                 requested = self.explicit_device.resolve()
@@ -95,6 +101,7 @@ class WindowsMount:
                     candidates = [
                         {"name": str(self.explicit_device), "fstype": self._probe_fstype(self.explicit_device)}
                     ]
+                logger.debug("filtered to %d candidate(s) matching --windows-device %s", len(candidates), requested)
 
             for entry in candidates:
                 for mountpoint in entry.get("mountpoints", []):
@@ -102,6 +109,7 @@ class WindowsMount:
                         continue
                     candidate = Path(mountpoint)
                     if (candidate / SYSTEM_HIVE).is_file():
+                        logger.debug("found an already-mounted Windows volume at %s", candidate)
                         self.root = candidate
                         self.device = Path(str(entry.get("name", "")))
                         self.fstype = str(entry.get("fstype") or "") or None
@@ -112,13 +120,16 @@ class WindowsMount:
             for entry in candidates:
                 fstype = str(entry.get("fstype") or "").lower()
                 if fstype not in {"ntfs", "bitlocker"} and "bitlocker" not in fstype:
+                    logger.debug("skipping %s (fstype=%r)", entry.get("name"), fstype)
                     continue
                 try:
+                    logger.debug("attempting to mount %s (fstype=%r)", entry.get("name"), fstype)
                     self.fstype = fstype
                     self.root = self._mount_device(Path(str(entry["name"])), "bitlocker" in fstype)
                     self._validate()
                     return self.root
-                except UpdateError:
+                except UpdateError as error:
+                    logger.debug("mounting %s failed: %s", entry.get("name"), error)
                     self.close()
                     if self.explicit_device:
                         raise
@@ -252,7 +263,9 @@ def _active_control_set(hive: Path) -> str:
     match = re.search(r'^"Current"=dword:([0-9a-f]+)', exported, re.I | re.M)
     if not match:
         raise UpdateError("Windows registry does not contain Select\\Current")
-    return f"ControlSet{int(match.group(1), 16):03d}"
+    control_set = f"ControlSet{int(match.group(1), 16):03d}"
+    logger.debug("active control set: %s", control_set)
+    return control_set
 
 
 def _logical_registry_lines(exported: str) -> list[str]:
@@ -319,12 +332,14 @@ def registry_board_filename(windows_root: Path, device: AthDevice) -> RegistryBo
     if not boards:
         raise UpdateError(f"BDFilename was not found below {key}")
 
+    logger.debug("BDFilename candidates below %s: %s", key, ", ".join(sorted({board.filename for board in boards})))
     unique = {board.filename.casefold(): board for board in boards}
     if len(unique) == 1:
         return next(iter(unique.values()))
 
     windows_subsys = f"subsys_{device.subsystem_device}{device.subsystem_vendor}"
     hardware_tokens = (f"ven_{device.vendor}", f"dev_{device.device}", windows_subsys)
+    logger.debug("disambiguating BDFilename by hardware tokens: %s", hardware_tokens)
     matches = [board for board in boards if all(token in board.section.casefold() for token in hardware_tokens)]
     if len(matches) == 1:
         return matches[0]
@@ -343,7 +358,10 @@ def resolve_board_file(windows_root: Path, filename: str) -> Path:
                 matches.append(Path(directory) / candidate)
     if not matches:
         raise UpdateError(f"{filename} was not found in the Windows DriverStore")
-    return max(matches, key=lambda path: path.stat().st_mtime)
+    logger.debug("DriverStore matches for %s: %s", filename, ", ".join(str(match) for match in matches))
+    chosen = max(matches, key=lambda path: path.stat().st_mtime)
+    logger.debug("selected newest match: %s", chosen)
+    return chosen
 
 
 def validate_board_file(path: Path) -> None:

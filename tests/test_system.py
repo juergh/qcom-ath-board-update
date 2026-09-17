@@ -1,8 +1,17 @@
+import logging
 import tempfile
 import unittest
 from pathlib import Path
 
-from qcom_ath_board_update.system import UpdateError, choose_device, discover_devices, validate_firmware_relative_path
+from qcom_ath_board_update.system import (
+    UpdateError,
+    choose_device,
+    configure_logging,
+    discover_devices,
+    find_board_container,
+    logger,
+    validate_firmware_relative_path,
+)
 
 
 class SystemTests(unittest.TestCase):
@@ -47,6 +56,32 @@ class SystemTests(unittest.TestCase):
         for value in ("/etc/board-2.bin", "ath12k/../../etc/board-2.bin", "qcom/board-2.bin"):
             with self.subTest(value=value), self.assertRaises(UpdateError):
                 validate_firmware_relative_path(value)
+
+    def test_missing_board_container_error_lists_roots(self):
+        """The 'could not find' error names the search roots and points at -v."""
+        with self.assertRaisesRegex(UpdateError, r"could not find .*board-2\.bin.*-v"):
+            find_board_container("ath12k/does-not-exist/hw9.9/board-2.bin")
+
+    def test_missing_board_container_logs_every_checked_path(self):
+        """With -v, every candidate path that was checked is logged before failing."""
+        with self.assertLogs(logger, level="DEBUG") as captured:
+            with self.assertRaises(UpdateError):
+                find_board_container("ath12k/does-not-exist/hw9.9/board-2.bin")
+        messages = "\n".join(captured.output)
+        self.assertIn("checking for board container", messages)
+        self.assertIn("ath12k/does-not-exist/hw9.9/board-2.bin.zst", messages)
+
+    def test_configure_logging_sets_level_by_verbosity(self):
+        """Verbosity 0/1/2 map to WARNING/INFO/DEBUG on the shared logger."""
+        try:
+            configure_logging(0)
+            self.assertEqual(logger.level, logging.WARNING)
+            configure_logging(1)
+            self.assertEqual(logger.level, logging.INFO)
+            configure_logging(2)
+            self.assertEqual(logger.level, logging.DEBUG)
+        finally:
+            configure_logging(0)
 
 
 if __name__ == "__main__":

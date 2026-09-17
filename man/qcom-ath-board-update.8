@@ -57,6 +57,12 @@ Do not run update-initramfs or dracut after installation.
 .TP
 .B --json
 Print the inspection report as JSON.
+.TP
+.B -v ", " --verbose
+Print diagnostic detail (discovered devices, kernel-log matches, board
+container search paths, and Windows registry lookups) to standard error.
+Repeat for more detail
+.RB ( -vv " prints a full Python traceback for unexpected errors)."
 .SH BITLOCKER
 BitLocker volumes are opened with dislocker in read-only mode. Dislocker
 prompts for a recovery password without exposing it in the process command

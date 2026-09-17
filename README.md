@@ -60,6 +60,14 @@ qcom-ath-board-update --board-name 'bus=pci,...' inspect
 qcom-ath-board-update --board-container /path/to/board-2.bin.zst inspect
 ```
 
+If detection fails or you need to see why a value (device, board name, or
+firmware path) was or wasn't found, add `-v` (or `-vv` for a full traceback
+on unexpected errors):
+
+```console
+qcom-ath-board-update -v inspect
+```
+
 When BitLocker is enabled, automatic access requires a recovery password,
 user-password protector, or `.BEK` file supported by `dislocker`. A TPM-only
 protector normally cannot be unlocked automatically from Linux. The simplest

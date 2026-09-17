@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,10 +19,12 @@ from .board import BoardUpdate, build_update, file_hash, inspect_update
 from .system import (
     UpdateError,
     choose_device,
+    configure_logging,
     discover_devices,
     find_board_container,
     infer_relative_path,
     kernel_log,
+    logger,
     validate_firmware_relative_path,
 )
 from .windows import (
@@ -52,6 +55,13 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--output-root", type=Path, default=Path("/usr/lib/firmware/updates"))
     result.add_argument("--no-initramfs-update", action="store_true")
     result.add_argument("--json", action="store_true")
+    result.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="print diagnostic detail to stderr; repeat for more (-vv)",
+    )
     result.add_argument("command", nargs="?", choices=("inspect", "install", "verify"), default="inspect")
     return result
 
@@ -62,12 +72,13 @@ def _context(args: argparse.Namespace):
     device = choose_device(discover_devices(args.sysfs_root, log), args.device)
     board_name = args.board_name or device.board_name
     if not board_name:
-        raise UpdateError("kernel log has no board name; use --board-name")
+        raise UpdateError("kernel log has no board name; use --board-name (rerun with -v for detail)")
     relative = args.firmware_relative_path or device.firmware_relative_path
     if not relative and args.board_container:
         relative = infer_relative_path(args.board_container)
+        logger.debug("inferred firmware_relative_path=%r from --board-container", relative)
     if not relative:
-        raise UpdateError("kernel log has no firmware path; use --firmware-relative-path")
+        raise UpdateError("kernel log has no firmware path; use --firmware-relative-path (rerun with -v for detail)")
     container = find_board_container(relative, args.board_container)
     return device, board_name, relative, container
 
@@ -116,6 +127,7 @@ def _report(
 
 def _compress(source: Path, destination: Path) -> None:
     """Compress a rebuilt board container with Zstandard."""
+    logger.debug("running: zstd -q -19 -c %s > %s", source, destination)
     with destination.open("wb") as output:
         result = subprocess.run(["zstd", "-q", "-19", "-c", str(source)], stdout=output, check=False)
     if result.returncode != 0:
@@ -179,8 +191,10 @@ def _fsync_directory(path: Path) -> None:
 def _update_initramfs() -> None:
     """Regenerate initramfs images with the available distribution tool."""
     if command := shutil.which("update-initramfs"):
+        logger.debug("running: %s -u -k all", command)
         result = subprocess.run([command, "-u", "-k", "all"], check=False)
     elif command := shutil.which("dracut"):
+        logger.debug("running: %s --regenerate-all --force", command)
         result = subprocess.run([command, "--regenerate-all", "--force"], check=False)
     else:
         print("Warning: no initramfs generator found; rebuild it manually if Wi-Fi is loaded early.", file=sys.stderr)
@@ -196,6 +210,14 @@ def run(args: argparse.Namespace) -> int:
     driver = device.driver
     if driver not in {"ath11k_pci", "ath12k_pci"}:
         driver = "ath11k_pci" if relative.startswith("ath11k/") else "ath12k_pci"
+    logger.debug(
+        "resolved device=%s driver=%s board_name=%r firmware_relative_path=%r container=%s",
+        device.address,
+        driver,
+        board_name,
+        relative,
+        container,
+    )
 
     def perform(bdf: Path, windows_metadata: dict | None) -> int:
         """Inspect the selected BDF and optionally install its mapping."""
@@ -244,10 +266,13 @@ def run(args: argparse.Namespace) -> int:
 def main() -> None:
     """Run the command-line interface with concise error handling."""
     args = parser().parse_args()
+    configure_logging(args.verbose)
     try:
         raise SystemExit(run(args))
     except (UpdateError, OSError, ValueError) as error:
         print(f"Error: {error}", file=sys.stderr)
+        if args.verbose >= 2:
+            traceback.print_exc()
         raise SystemExit(1) from error
 
 

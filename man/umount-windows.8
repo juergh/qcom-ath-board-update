@@ -36,6 +36,11 @@ Force the unmount, as with
 .B --lazy
 Detach the mount lazily, as with
 .BR "umount -l" .
+.TP
+.B -v ", " --verbose
+Print diagnostic detail (tracked mounts considered) to standard error. Repeat
+for more detail
+.RB ( -vv " prints a full Python traceback for unexpected errors)."
 .SH FILES
 .TP
 .B /run/mount-windows

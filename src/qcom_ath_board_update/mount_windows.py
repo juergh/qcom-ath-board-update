@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import IO, TYPE_CHECKING
 
-from .system import UpdateError
+from .system import UpdateError, logger
 from .windows import unmount_path
 
 if TYPE_CHECKING:
@@ -100,7 +100,9 @@ def list_mounts(prune: bool = True) -> list[TrackedMount]:
 
 def find(target: str, *, prune: bool = True) -> TrackedMount:
     """Find one tracked mount by its mountpoint or source device."""
-    matches = [record for record in list_mounts(prune=prune) if record.root == target or record.device == target]
+    records = list_mounts(prune=prune)
+    logger.debug("tracked mounts: %s", ", ".join(f"{r.root} <- {r.device}" for r in records) or "none")
+    matches = [record for record in records if record.root == target or record.device == target]
     if not matches:
         raise UpdateError(f"no mount-windows mount matches {target}")
     if len(matches) > 1:

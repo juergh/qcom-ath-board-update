@@ -9,7 +9,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from .system import UpdateError
+from .system import UpdateError, logger
 
 
 @dataclass
@@ -37,9 +37,11 @@ def encoder_path(driver: str, override: Path | None = None) -> Path:
     family = driver.removesuffix("_pci")
     installed = Path("/usr/libexec/qcom-ath-board-update") / f"{family}-bdencoder"
     if installed.is_file():
+        logger.debug("using installed encoder: %s", installed)
         return installed
     source = Path(__file__).resolve().parents[2] / "vendor" / f"{family}-bdencoder"
     if source.is_file():
+        logger.debug("using vendored encoder: %s", source)
         return source
     raise UpdateError(f"the bundled {family}-bdencoder could not be found")
 
@@ -48,6 +50,7 @@ def unpack_container(source: Path, destination: Path) -> Path:
     """Copy or decompress a board container into a working directory."""
     output = destination / "board-2.bin"
     if source.suffix == ".zst":
+        logger.debug("running: zstd -q -d -c %s > %s", source, output)
         with output.open("wb") as stream:
             result = subprocess.run(["zstd", "-q", "-d", "-c", str(source)], stdout=stream, check=False)
         if result.returncode != 0:
@@ -59,6 +62,7 @@ def unpack_container(source: Path, destination: Path) -> Path:
 
 def _run_encoder(encoder: Path, arguments: list[str], cwd: Path) -> None:
     """Run a bdencoder command and report a useful failure message."""
+    logger.debug("running: python3 %s %s (cwd=%s)", encoder, " ".join(arguments), cwd)
     result = subprocess.run(["python3", str(encoder), *arguments], cwd=cwd, text=True, capture_output=True, check=False)
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()

@@ -1,9 +1,24 @@
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+
+logger = logging.getLogger("qcom_ath_board_update")
+
+
+def configure_logging(verbosity: int) -> None:
+    """Configure diagnostic logging for the requested verbosity level (0, 1, or 2+)."""
+    level = logging.WARNING if verbosity <= 0 else logging.INFO if verbosity == 1 else logging.DEBUG
+    handler = logging.StreamHandler(sys.stderr)
+    formatter = logging.Formatter("%(levelname)s: %(message)s" if verbosity else "%(message)s")
+    handler.setFormatter(formatter)
+    logger.handlers[:] = [handler]
+    logger.setLevel(level)
+    logger.propagate = False
 
 
 class UpdateError(RuntimeError):
@@ -37,12 +52,21 @@ def kernel_log() -> str:
     )
     errors: list[str] = []
     for command in commands:
+        logger.debug("trying kernel log source: %s", " ".join(command))
         try:
             result = subprocess.run(command, text=True, capture_output=True, check=False)
         except FileNotFoundError:
+            logger.debug("%s not found", command[0])
             continue
         if result.returncode == 0 and result.stdout:
+            logger.info(
+                "kernel log source: %s (%d lines, %d bytes)",
+                command[0],
+                result.stdout.count("\n"),
+                len(result.stdout),
+            )
             return result.stdout
+        logger.debug("%s exited %d: %s", command[0], result.returncode, result.stderr.strip())
         errors.append(result.stderr.strip())
     raise UpdateError("unable to read the kernel log: " + "; ".join(filter(None, errors)))
 
@@ -75,7 +99,21 @@ def discover_devices(sysfs_root: Path = Path("/sys/bus/pci/devices"), log: str =
             match = re.search(rf"\b(ath1[12]k)_pci\s+{re.escape(address)}:", log)
             if match:
                 device.driver = f"{match.group(1)}_pci"
+        logger.debug(
+            "found Qualcomm Wi-Fi device %s (driver=%s, chip_id=%s, board_id=%s, firmware_relative_path=%s)",
+            device.address,
+            device.driver,
+            device.chip_id,
+            device.board_id,
+            device.firmware_relative_path,
+        )
         devices.append(device)
+    logger.info(
+        "discovered %d Qualcomm Wi-Fi device(s) below %s: %s",
+        len(devices),
+        sysfs_root,
+        ", ".join(device.address for device in devices) or "none",
+    )
     return devices
 
 
@@ -83,10 +121,17 @@ def _add_log_data(device: AthDevice, log: str) -> None:
     """Add QMI and firmware details from kernel messages to a device."""
     lines = [line for line in log.splitlines() if device.address in line]
     text = "\n".join(lines)
+    logger.info("%d kernel-log line(s) mention %s", len(lines), device.address)
+    for line in lines:
+        logger.debug("%s: %s", device.address, line)
+
     ids = re.search(r"chip_id\s+0x([0-9a-f]+).*?board_id\s+0x([0-9a-f]+)", text, re.I | re.S)
     if ids:
         device.chip_id = int(ids.group(1), 16)
         device.board_id = int(ids.group(2), 16)
+        logger.debug("%s: chip_id=0x%x board_id=0x%x", device.address, device.chip_id, device.board_id)
+    else:
+        logger.debug("%s: no chip_id/board_id found in matching kernel-log lines", device.address)
 
     failure = re.search(
         r"failed to fetch board data for\s+(.+?)\s+from\s+((?:ath11k|ath12k)/\S+/board-2\.bin)",
@@ -95,11 +140,25 @@ def _add_log_data(device: AthDevice, log: str) -> None:
     if failure:
         device.board_name = failure.group(1).strip()
         device.firmware_relative_path = failure.group(2).strip()
+        logger.debug(
+            "%s: matched 'failed to fetch board data' line -> board_name=%r firmware_relative_path=%r",
+            device.address,
+            device.board_name,
+            device.firmware_relative_path,
+        )
         return
+    logger.debug("%s: no 'failed to fetch board data ... from ...' line matched", device.address)
 
     firmware = re.search(r"((?:ath11k|ath12k)/[^\s:]+)/(?:amss|m3|board-2)\.bin", text)
     if firmware:
         device.firmware_relative_path = f"{firmware.group(1)}/board-2.bin"
+        logger.debug(
+            "%s: matched a bare firmware path reference -> firmware_relative_path=%r",
+            device.address,
+            device.firmware_relative_path,
+        )
+    else:
+        logger.debug("%s: no bare firmware path reference matched either", device.address)
 
     if device.chip_id is not None and device.board_id is not None:
         device.board_name = (
@@ -108,6 +167,7 @@ def _add_log_data(device: AthDevice, log: str) -> None:
             f"subsystem-device={device.subsystem_device},"
             f"qmi-chip-id={device.chip_id},qmi-board-id={device.board_id}"
         )
+        logger.debug("%s: synthesized board_name=%r from QMI ids", device.address, device.board_name)
 
 
 def choose_device(devices: list[AthDevice], address: str | None) -> AthDevice:
@@ -124,6 +184,7 @@ def choose_device(devices: list[AthDevice], address: str | None) -> AthDevice:
     if len(candidates) > 1:
         names = ", ".join(device.address for device in candidates)
         raise UpdateError(f"multiple Qualcomm Wi-Fi devices found ({names}); use --device")
+    logger.debug("selected device %s", candidates[0].address)
     return candidates[0]
 
 
@@ -146,11 +207,18 @@ def find_board_container(relative_path: str, override: Path | None = None) -> Pa
             candidate = root / f"{relative_path}{suffix}"
             normalized = candidate.resolve(strict=False)
             if normalized in checked:
+                logger.debug("skipping already-checked path: %s", normalized)
                 continue
             checked.add(normalized)
+            logger.debug("checking for board container: %s (exists=%s)", candidate, candidate.is_file())
             if candidate.is_file():
+                logger.info("found board container: %s", candidate)
                 return candidate
-    raise UpdateError(f"could not find {relative_path} or {relative_path}.zst")
+    raise UpdateError(
+        f"could not find {relative_path} or {relative_path}.zst in "
+        + ", ".join(str(root) for root in roots)
+        + " (rerun with -v to see every path that was checked)"
+    )
 
 
 def validate_firmware_relative_path(value: str) -> str:
