@@ -12,7 +12,7 @@ ruff:
 
 mypy:
 	@echo "II: Running mypy"
-	uv run python -m mypy .
+	uv run python -m mypy
 	@echo
 
 unittest:
