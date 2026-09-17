@@ -4,6 +4,7 @@
 /debian/debhelper-build-stamp
 /debian/files
 /debian/qcom-ath-board-update/
+/debian/qcom-ath-board-update.*.debhelper
 /debian/qcom-ath-board-update.debhelper.log
 /debian/qcom-ath-board-update.substvars
 /dist/
