@@ -40,7 +40,9 @@ Detach the mount lazily, as with
 .B -v ", " --verbose
 Print diagnostic detail (tracked mounts considered) to standard error. Repeat
 for more detail
-.RB ( -vv " prints a full Python traceback for unexpected errors)."
+.RB ( -vv " also prints a full Python traceback for unexpected"
+environment failures; ordinary usage and validation errors are not
+affected).
 .SH FILES
 .TP
 .B /run/mount-windows

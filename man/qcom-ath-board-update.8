@@ -62,7 +62,9 @@ Print the inspection report as JSON.
 Print diagnostic detail (discovered devices, kernel-log matches, board
 container search paths, and Windows registry lookups) to standard error.
 Repeat for more detail
-.RB ( -vv " prints a full Python traceback for unexpected errors)."
+.RB ( -vv " also prints a full Python traceback for unexpected"
+environment failures; ordinary usage and validation errors are not
+affected).
 .SH BITLOCKER
 BitLocker volumes are opened with dislocker in read-only mode. Dislocker
 prompts for a recovery password without exposing it in the process command

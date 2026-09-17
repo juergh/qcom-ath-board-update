@@ -4,13 +4,12 @@ import argparse
 import json
 import os
 import sys
-import traceback
 from dataclasses import asdict
 from pathlib import Path
 
 from . import __version__
 from .mount_windows import TrackedMount, find, list_mounts, save, unwind
-from .system import UpdateError, configure_logging
+from .system import UpdateError, configure_logging, report_error
 from .windows import WindowsMount
 
 
@@ -78,10 +77,7 @@ def mount_main() -> None:
     try:
         raise SystemExit(_run_mount(args))
     except (UpdateError, OSError, ValueError) as error:
-        print(f"Error: {error}", file=sys.stderr)
-        if args.verbose >= 2:
-            traceback.print_exc()
-        raise SystemExit(1) from error
+        raise SystemExit(report_error(error, args.verbose)) from error
 
 
 def _umount_parser() -> argparse.ArgumentParser:
@@ -132,15 +128,15 @@ def _run_umount(args: argparse.Namespace) -> int:
 
 def umount_main() -> None:
     """Entry point for the umount-windows command."""
-    args = _umount_parser().parse_args()
+    parser = _umount_parser()
+    args = parser.parse_args()
+    if not args.target and not args.all:
+        parser.error("specify a mountpoint or device, or use --all")
     configure_logging(args.verbose)
     try:
         raise SystemExit(_run_umount(args))
     except (UpdateError, OSError, ValueError) as error:
-        print(f"Error: {error}", file=sys.stderr)
-        if args.verbose >= 2:
-            traceback.print_exc()
-        raise SystemExit(1) from error
+        raise SystemExit(report_error(error, args.verbose)) from error
 
 
 if __name__ == "__main__":

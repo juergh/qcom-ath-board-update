@@ -1,11 +1,13 @@
 import argparse
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from qcom_ath_board_update.mount_windows import TrackedMount, save
-from qcom_ath_board_update.mount_windows_cli import _run_mount, _run_umount
+from qcom_ath_board_update.mount_windows_cli import _run_mount, _run_umount, _umount_parser
 from qcom_ath_board_update.system import UpdateError
 
 
@@ -48,6 +50,22 @@ class MountWindowsCliTests(unittest.TestCase):
         with patch("os.geteuid", return_value=0):
             with self.assertRaisesRegex(UpdateError, "specify a mountpoint"):
                 _run_umount(args)
+
+    def test_umount_cli_rejects_missing_target_via_argparse(self):
+        """The real CLI entry point rejects a missing target/--all as a usage
+        error (argparse exit code 2, no Python traceback), not a runtime
+        UpdateError."""
+        parser = _umount_parser()
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+            args = parser.parse_args([])
+            if not args.target and not args.all:
+                parser.error("specify a mountpoint or device, or use --all")
+        self.assertEqual(raised.exception.code, 2)
+        output = stderr.getvalue()
+        self.assertIn("specify a mountpoint or device, or use --all", output)
+        self.assertIn("usage:", output)
+        self.assertNotIn("Traceback", output)
 
     def test_umount_unknown_target_raises(self):
         """Report a clear error for a target that mount-windows isn't tracking."""

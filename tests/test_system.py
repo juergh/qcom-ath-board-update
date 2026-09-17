@@ -1,3 +1,5 @@
+import contextlib
+import io
 import logging
 import tempfile
 import unittest
@@ -10,6 +12,7 @@ from qcom_ath_board_update.system import (
     discover_devices,
     find_board_container,
     logger,
+    report_error,
     validate_firmware_relative_path,
 )
 
@@ -82,6 +85,36 @@ class SystemTests(unittest.TestCase):
             self.assertEqual(logger.level, logging.DEBUG)
         finally:
             configure_logging(0)
+
+    def test_report_error_never_shows_traceback_for_update_error(self):
+        """UpdateError is a deliberate, self-explanatory message; never dump a traceback."""
+        try:
+            raise UpdateError("specify a mountpoint or device, or use --all")
+        except UpdateError as error:
+            for verbosity in (0, 1, 2, 3):
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    status = report_error(error, verbosity)
+                output = stderr.getvalue()
+                self.assertEqual(status, 1)
+                self.assertIn("Error: specify a mountpoint", output)
+                self.assertNotIn("Traceback", output)
+
+    def test_report_error_shows_traceback_for_os_error_at_high_verbosity(self):
+        """An unexpected OSError gets a traceback only when -vv (or more) is requested."""
+        try:
+            raise OSError("disk exploded")
+        except OSError as error:
+            for verbosity in (0, 1):
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    report_error(error, verbosity)
+                self.assertNotIn("Traceback", stderr.getvalue())
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                report_error(error, 2)
+            self.assertIn("Traceback", stderr.getvalue())
 
 
 if __name__ == "__main__":

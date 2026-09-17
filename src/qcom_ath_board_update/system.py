@@ -4,6 +4,7 @@ import logging
 import re
 import subprocess
 import sys
+import traceback
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -23,6 +24,15 @@ def configure_logging(verbosity: int) -> None:
 
 class UpdateError(RuntimeError):
     pass
+
+
+def report_error(error: Exception, verbosity: int) -> int:
+    """Print a concise error and, for unexpected (non-UpdateError) failures at
+    -vv, a full traceback. Returns the process exit status to use."""
+    print(f"Error: {error}", file=sys.stderr)
+    if verbosity >= 2 and not isinstance(error, UpdateError):
+        traceback.print_exc()
+    return 1
 
 
 @dataclass

@@ -9,7 +9,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import traceback
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +24,7 @@ from .system import (
     infer_relative_path,
     kernel_log,
     logger,
+    report_error,
     validate_firmware_relative_path,
 )
 from .windows import (
@@ -270,10 +270,7 @@ def main() -> None:
     try:
         raise SystemExit(run(args))
     except (UpdateError, OSError, ValueError) as error:
-        print(f"Error: {error}", file=sys.stderr)
-        if args.verbose >= 2:
-            traceback.print_exc()
-        raise SystemExit(1) from error
+        raise SystemExit(report_error(error, args.verbose)) from error
 
 
 if __name__ == "__main__":
